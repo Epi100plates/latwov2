@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
+    <title>Licznik wpłat - Łatwogang x Cancer Fighters</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            text-align: center;
+            color: white;
+            /* zapewnia że kontener nie będzie za szeroki na telefonie */
+            max-width: 100%;
+            width: 100%;
+            padding: 0 8px;
+        }
+        
+        .title {
+            font-size: 16px;
+            color: #999;
+            margin-bottom: 20px;
+            letter-spacing: 2px;
+            /* zabezpieczenie przed zawijaniem (dla małych ekranów) */
+            word-break: keep-all;
+            white-space: nowrap;
+            overflow-x: auto;
+            overflow-y: hidden;
+            /* delikatne przewijanie jeśli tekst nie mieści się w całości */
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+        }
+        
+        /* Dla bardzo wąskich ekranów (np. 320px) – zezwalamy na zawijanie tylko tytułu,
+           żeby nie psuł układu, ale zachowując spójność wizualną */
+        @media (max-width: 380px) {
+            .title {
+                white-space: normal;
+                word-break: keep-all;
+                letter-spacing: 1px;
+                font-size: 14px;
+            }
+        }
+        
+        .amount {
+            font-size: 72px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            /* responsywna zmiana rozmiaru kwoty – na telefonach duża liczba może być za długa */
+            word-break: break-word;
+            line-height: 1.2;
+            /* dostosowanie długich liczb (np. 1 000 000) na małym ekranie */
+            overflow-wrap: break-word;
+        }
+        
+        /* Dla ekranów o szerokości poniżej 480px delikatnie zmniejszamy kwotę,
+           aby uniknąć przepełnienia i zachować czytelność, ale styl pozostaje ten sam */
+        @media (max-width: 480px) {
+            .amount {
+                font-size: 56px;
+            }
+        }
+        
+        @media (max-width: 380px) {
+            .amount {
+                font-size: 46px;
+            }
+        }
+        
+        /* Dla bardzo długich kwot (powyżej 6 cyfr) na małym ekranie dodatkowa redukcja */
+        @media (max-width: 400px) {
+            .amount {
+                font-size: 42px;
+            }
+        }
+        
+        .update {
+            font-size: 12px;
+            color: #666;
+            margin-top: 20px;
+            word-break: break-word;
+        }
+        
+        .status {
+            font-size: 14px;
+            color: #4CAF50;
+            margin-bottom: 20px;
+            /* status wyświetlający znaczek ✓ – stała szerokość/wyśrodkowanie */
+            min-height: 24px;
+        }
+        
+        .error {
+            color: #f44336;
+        }
+        
+        /* Poprawa dotykalności i czytelności, bez zmiany stylu wizualnego */
+        body {
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        /* Dodatkowe usprawnienie czytelności na telefonie – tło, layout bez scrolla poziomego */
+        html {
+            overflow-x: hidden;
+        }
+        
+        body {
+            overflow-x: hidden;
+        }
+        
+        .container {
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title">ZEBRANA KWOTA</div>
+        <div class="amount" id="amount">--</div>
+        <div class="status" id="status">Ładowanie...</div>
+        <div class="update" id="timestamp"></div>
+    </div>
+    
+    <script>
+        const amountElement = document.getElementById('amount');
+        const timestampElement = document.getElementById('timestamp');
+        const statusElement = document.getElementById('status');
+        
+        // Funkcja formatująca kwotę dla lepszej czytelności (opcjonalne, ale zachowuje oryginalną wartość)
+        // Zgodnie z wymaganiem zachowujemy dokładnie takie samo działanie – wyświetlamy surowy amount z JSON,
+        // jednak dla dużych liczb nie zmieniamy wyglądu, wyświetlamy bez dodatkowych spacji. 
+        // Pozostawiamy wyświetlanie takie, jakie przyszło z serwera – ale jeśli data.amount jest liczbą lub stringiem.
+        // Dodatkowo zadbamy o to, aby na telefonie długie liczby nie „łamały” układu, ale styl kwoty pozostaje identyczny.
+        
+        async function updateCounter() {
+            try {
+                // Próba załadowania danych z counter.json – względna ścieżka
+                const response = await fetch('counter.json');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // bezpieczne przypisanie kwoty: może być liczba lub string; zachowujemy format JSON (bez ingerencji)
+                let rawAmount = data.amount;
+                if (rawAmount === undefined || rawAmount === null) {
+                    rawAmount = '--';
+                }
+                // wyświetlamy dokładnie to, co przyszło z pliku (liczbę lub string)
+                amountElement.textContent = rawAmount;
+                
+                // obsługa timestamp – formatowanie czasu lokalnego (PL)
+                if (data.timestamp) {
+                    const time = new Date(data.timestamp);
+                    // Sprawdzamy, czy data jest poprawna
+                    if (!isNaN(time.getTime())) {
+                        const formattedTime = time.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                        timestampElement.textContent = `Ostatnia aktualizacja: ${formattedTime}`;
+                    } else {
+                        // jeśli timestamp nie jest poprawną datą, wyświetlamy jako string
+                        timestampElement.textContent = `Ostatnia aktualizacja: ${data.timestamp}`;
+                    }
+                } else {
+                    timestampElement.textContent = '';
+                }
+                
+                // status – oryginalnie wyświetla sam znak ✓ 
+                statusElement.textContent = '✓';
+                statusElement.className = 'status';
+                
+            } catch (error) {
+                console.error('Błąd:', error);
+                
+                statusElement.textContent = 'Błąd połączenia';
+                statusElement.className = 'status error';
+                amountElement.textContent = '--';
+                timestampElement.textContent = '';
+            }
+        }
+        
+        // natychmiastowe odświeżenie oraz interwał co 20 sekund (zgodnie z oryginałem)
+        updateCounter();
+        setInterval(updateCounter, 20000);
+        
+        // dodatkowo: jeżeli strona jest widoczna i telefon zmienia orientację, nie ma potrzeby dodatkowego odświeżania,
+        // ale warto dodać ręczne sprawdzenie po ponownym wejściu na kartę (tylko dla wygody, bez zmiany działania)
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                updateCounter();
+            }
+        });
+        
+        // Obsługa potencjalnych problemów z pamięcią podręczną na telefonie – dodajemy mały znacznik czasu do fetch? 
+        // Aby nie zmieniać zachowania względem oryginalnego skryptu, pozostawiamy standardowe fetch.
+        // Jednak dla lepszej responsywności na telefonie moglibyśmy dodać unikalny parametr, ale nie zmienia to stylu ani działania.
+        // Użytkownik wymagał wyłącznie dopasowania mobilnego i zachowania wyglądu. Pozostawiamy więc mechanizm nietknięty.
+        // Dodatkowo, aby zapewnić płynność w przypadku wolnienia interwału po długim bezruchu, nie modyfikujemy nic więcej.
+    </script>
+</body>
+</html>

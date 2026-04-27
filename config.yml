@@ -1,0 +1,7 @@
+tunnel: 943d2298-ffd0-487b-a8a5-c74d7836720e  # Wklej swoje ID tunelu
+credentials-file: /root/.cloudflared/943d2298-ffd0-487b-a8a5-c74d7836720e.json
+
+ingress:
+  - hostname: latwogang.mati-it.pl
+    service: http://localhost:3000
+  - service: http_status:404

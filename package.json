@@ -1,0 +1,25 @@
+{
+  "name": "latwogang-donation-counter",
+  "version": "1.0.0",
+  "description": "Licznik wpłat Łatwogang x Cancer Fighters ze strony siepomaga.pl",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "siepomaga",
+    "donation",
+    "counter",
+    "latwogang"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "puppeteer": "^21.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
