@@ -128,7 +128,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="title">ZEBRANA KWOTA</div>
+        <div class="title">ZEBRANA KWOTA Łatwogang x CancerFighters</div>
         <div class="amount" id="amount">--</div>
         <div class="status" id="status">Ładowanie...</div>
         <div class="update" id="timestamp"></div>
@@ -170,10 +170,10 @@
                     // Sprawdzamy, czy data jest poprawna
                     if (!isNaN(time.getTime())) {
                         const formattedTime = time.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                        timestampElement.textContent = `Ostatnia aktualizacja: ${formattedTime}`;
+                        timestampElement.textContent = `Ostatnia aktualizacja: ${formattedTime} Licznik by: Epii`;
                     } else {
                         // jeśli timestamp nie jest poprawną datą, wyświetlamy jako string
-                        timestampElement.textContent = `Ostatnia aktualizacja: ${data.timestamp}`;
+                        timestampElement.textContent = `Ostatnia aktualizacja: ${data.timestamp} Licznik by: Epii`;
                     }
                 } else {
                     timestampElement.textContent = '';
@@ -195,7 +195,7 @@
         
         // natychmiastowe odświeżenie oraz interwał co 20 sekund (zgodnie z oryginałem)
         updateCounter();
-        setInterval(updateCounter, 20000);
+        setInterval(updateCounter, 1600000);
         
         // dodatkowo: jeżeli strona jest widoczna i telefon zmienia orientację, nie ma potrzeby dodatkowego odświeżania,
         // ale warto dodać ręczne sprawdzenie po ponownym wejściu na kartę (tylko dla wygody, bez zmiany działania)
