@@ -7,9 +7,15 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const counterFile = path.join(__dirname, 'counter.json');
 const logFile = path.join(__dirname, 'error.log');
+const screenshotsDir = path.join(__dirname, 'screenshots');
+
+// Upewnij się, że katalog na zrzuty ekranu istnieje
+if (!fs.existsSync(screenshotsDir)) {
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+}
 
 let browserInstance = null;
-let browserInitPromise = null; // Dodane dla zapewnienia pojedynczej inicjalizacji
+let browserInitPromise = null;
 let lastUpdate = new Date();
 
 // STAŁA KWOTA DO DODANIA
@@ -81,12 +87,10 @@ function saveCounterToFile(zrzutkaAmount, siepomagaAmount, totalAmount) {
 }
 
 async function initBrowser() {
-    // Jeśli już istnieje, zwróć
     if (browserInstance) {
         return browserInstance;
     }
     
-    // Jeśli już trwa inicjalizacja, poczekaj na nią
     if (browserInitPromise) {
         logToFile('Oczekiwanie na trwającą inicjalizację przeglądarki...', 'INFO');
         return browserInitPromise;
@@ -118,7 +122,21 @@ async function initBrowser() {
     return browserInitPromise;
 }
 
-// ORYGINALNA DZIAŁAJĄCA FUNKCJA ZRZUTKI
+// Funkcja pomocnicza do robienia zrzutów ekranu
+async function takeScreenshot(page, name) {
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `${name}_${timestamp}.png`;
+        const filepath = path.join(screenshotsDir, filename);
+        await page.screenshot({ path: filepath, fullPage: false });
+        logToFile(`Zapisano zrzut ekranu: ${filename}`, 'INFO');
+        return filepath;
+    } catch (error) {
+        logToFile(`Nie udało się zapisać zrzutu ekranu: ${error.message}`, 'ERROR');
+        return null;
+    }
+}
+
 async function fetchZrzutkaAmount() {
     const browser = await initBrowser();
     const page = await browser.newPage();
@@ -138,25 +156,67 @@ async function fetchZrzutkaAmount() {
         logToFile('Strona zrzutka.pl załadowana, oczekiwanie 5s...', 'INFO');
         await page.waitForTimeout(5000);
         
-        const kwota = await page.evaluate(() => {
+        // Zapisujemy zrzut ekranu
+        await takeScreenshot(page, 'zrzutka');
+        
+        // Próba odczytu dataLayer z dodatkowym logowaniem
+        const evaluationResult = await page.evaluate(() => {
+            const result = {
+                value: null,
+                dataLayerLength: 0,
+                dataLayerSample: null,
+                foundEntry: null
+            };
+            
             if (window.dataLayer) {
+                result.dataLayerLength = window.dataLayer.length;
+                // Pobierz próbkę pierwszych 5 wpisów (bez zagnieżdżonych obiektów, aby uniknąć ogromnych logów)
+                try {
+                    result.dataLayerSample = window.dataLayer.slice(0, 5).map(item => {
+                        try {
+                            return JSON.parse(JSON.stringify(item));
+                        } catch (e) {
+                            return String(item);
+                        }
+                    });
+                } catch (e) {
+                    result.dataLayerSample = 'Nie można skopiować próbki';
+                }
+                
                 for (let item of window.dataLayer) {
                     if (item.fundraise && item.fundraise.value) {
-                        return item.fundraise.value;
+                        result.value = item.fundraise.value;
+                        result.foundEntry = {
+                            fundraise: item.fundraise
+                        };
+                        break;
                     }
                 }
             }
-            return null;
+            return result;
         });
         
+        logToFile(`dataLayer zrzutka.pl - liczba wpisów: ${evaluationResult.dataLayerLength}`, 'INFO');
+        if (evaluationResult.dataLayerSample) {
+            logToFile(`dataLayer zrzutka.pl próbka: ${JSON.stringify(evaluationResult.dataLayerSample).substring(0, 500)}`, 'DEBUG');
+        }
+        
+        const kwota = evaluationResult.value;
         const amount = kwota || 0;
         
         if (kwota === null) {
             logToFile('Nie znaleziono kwoty w dataLayer na zrzutka.pl', 'WARNING');
+            // Zróbmy dodatkowy zrzut z informacją w logach
+            const pageContent = await page.content();
+            logToFile(`Kod źródłowy strony (pierwsze 1000 znaków): ${pageContent.substring(0, 1000)}`, 'DEBUG');
         } else if (kwota === 0) {
             logToFile('Kwota z zrzutka.pl wynosi 0', 'WARNING');
         } else {
             logToFile(`Pomyślnie pobrano z zrzutka.pl: ${formatAmount(amount)}`, 'SUCCESS');
+        }
+        
+        if (evaluationResult.foundEntry) {
+            logToFile(`Szczegóły znalezionego wpisu: ${JSON.stringify(evaluationResult.foundEntry)}`, 'DEBUG');
         }
         
         return amount;
@@ -164,6 +224,8 @@ async function fetchZrzutkaAmount() {
     } catch (error) {
         logToFile(`Błąd pobierania zrzutka.pl: ${error.message}`, 'ERROR');
         logToFile(`Stack trace: ${error.stack}`, 'ERROR');
+        // Próbujemy zrobić zrzut nawet w przypadku błędu
+        await takeScreenshot(page, 'zrzutka_error').catch(() => {});
         return 0;
     } finally {
         await page.close();
@@ -171,7 +233,6 @@ async function fetchZrzutkaAmount() {
     }
 }
 
-// NOWA FUNKCJA SIEPOMAGA
 async function fetchSiepomagaAmount() {
     const browser = await initBrowser();
     const page = await browser.newPage();
@@ -191,52 +252,58 @@ async function fetchSiepomagaAmount() {
         logToFile('Strona siepomaga.pl załadowana, oczekiwanie 5s...', 'INFO');
         await page.waitForTimeout(5000);
         
-        // Sprawdź, czy strona się załadowała poprawnie
+        await takeScreenshot(page, 'siepomaga');
+        
         const pageTitle = await page.title();
         logToFile(`Tytuł strony siepomaga.pl: "${pageTitle}"`, 'INFO');
         
-        const amount = await page.evaluate(() => {
+        // Główny selektor
+        let amountText = await page.evaluate(() => {
             const element = document.querySelector('[data-testid="count-up-amount-fundraise-donation-section-fundraise-page"]');
-            if (element) {
-                return element.textContent.trim();
-            }
-            return null;
+            return element ? element.textContent.trim() : null;
         });
         
-        if (amount === null) {
-            logToFile('Nie znaleziono elementu z kwotą na siepomaga.pl - selektor może być nieaktualny', 'WARNING');
+        let usedSelector = '[data-testid="count-up-amount-fundraise-donation-section-fundraise-page"]';
+        
+        if (!amountText) {
+            logToFile('Nie znaleziono elementu z kwotą na siepomaga.pl – szukam alternatywnych selektorów', 'WARNING');
             
-            // Próba znalezienia alternatywnego selektora
-            const alternativeAmount = await page.evaluate(() => {
+            // Próba alternatywnych selektorów
+            const alternative = await page.evaluate(() => {
                 const possibleSelectors = [
                     '[data-testid="count-up-amount"]',
                     '.amount-value',
                     '.fundraise-amount',
-                    '.donation-amount'
+                    '.donation-amount',
+                    '[class*="amount"]' // bardzo ogólny
                 ];
                 for (const selector of possibleSelectors) {
                     const el = document.querySelector(selector);
-                    if (el && el.textContent) {
+                    if (el && el.textContent.trim().length > 0) {
                         return { selector, value: el.textContent.trim() };
                     }
                 }
                 return null;
             });
             
-            if (alternativeAmount) {
-                logToFile(`Znaleziono alternatywny selektor "${alternativeAmount.selector}" z wartością: "${alternativeAmount.value}"`, 'INFO');
-                const parsed = parseAmount(alternativeAmount.value);
-                logToFile(`Pomyślnie pobrano z siepomaga.pl (alternatywny selektor): ${formatAmount(parsed)}`, 'SUCCESS');
-                return parsed;
+            if (alternative) {
+                amountText = alternative.value;
+                usedSelector = alternative.selector;
+                logToFile(`Znaleziono alternatywny selektor "${usedSelector}" z wartością: "${amountText}"`, 'INFO');
+            } else {
+                logToFile('Nie znaleziono żadnego selektora z kwotą na siepomaga.pl', 'ERROR');
+                // Zrzut kodu źródłowego do analizy
+                const pageContent = await page.content();
+                logToFile(`Kod HTML (pierwsze 1500 znaków): ${pageContent.substring(0, 1500)}`, 'DEBUG');
+                return 0;
             }
-            
-            return 0;
+        } else {
+            logToFile(`Główny selektor siepomaga.pl zwrócił: "${amountText}"`, 'INFO');
         }
         
-        const parsed = parseAmount(amount);
-        
+        const parsed = parseAmount(amountText);
         if (parsed === 0) {
-            logToFile(`Nie udało się sparsować kwoty z siepomaga.pl: "${amount}"`, 'WARNING');
+            logToFile(`Nie udało się sparsować kwoty z siepomaga.pl: "${amountText}"`, 'WARNING');
         } else {
             logToFile(`Pomyślnie pobrano z siepomaga.pl: ${formatAmount(parsed)}`, 'SUCCESS');
         }
@@ -246,6 +313,7 @@ async function fetchSiepomagaAmount() {
     } catch (error) {
         logToFile(`Błąd pobierania siepomaga.pl: ${error.message}`, 'ERROR');
         logToFile(`Stack trace: ${error.stack}`, 'ERROR');
+        await takeScreenshot(page, 'siepomaga_error').catch(() => {});
         return 0;
     } finally {
         await page.close();
@@ -253,25 +321,20 @@ async function fetchSiepomagaAmount() {
     }
 }
 
-// Główna funkcja pobierająca
 async function fetchDonationCounter() {
     const startTime = Date.now();
     logToFile('=== Rozpoczęcie aktualizacji licznika ===', 'INFO');
     
     try {
-        // Upewnij się, że przeglądarka jest zainicjalizowana przed równoległym pobieraniem
         await initBrowser();
         
-        // Pobierz z obu stron jednocześnie
         logToFile('Uruchamiam równoległe pobieranie danych z obu stron...', 'INFO');
         const [zrzutkaAmount, siepomagaAmount] = await Promise.all([
             fetchZrzutkaAmount(),
             fetchSiepomagaAmount()
         ]);
         
-        // DODAJ STAŁĄ KWOTĘ
         const totalAmount = zrzutkaAmount + siepomagaAmount + STALA_KWOTA;
-        
         const duration = Date.now() - startTime;
         
         console.log('\n=== WYNIKI ===');
@@ -284,12 +347,11 @@ async function fetchDonationCounter() {
         
         logToFile(`WYNIKI - zrzutka: ${formatAmount(zrzutkaAmount)}, siepomaga: ${formatAmount(siepomagaAmount)}, stała: ${formatAmount(STALA_KWOTA)}, RAZEM: ${formatAmount(totalAmount)}, czas: ${duration}ms`, 'INFO');
         
-        // Sprawdź, czy któraś z wartości jest równa 0 (potencjalny problem)
         if (zrzutkaAmount === 0) {
-            logToFile('UWAGA: Kwota z zrzutka.pl wynosi 0 - możliwy problem z pobieraniem danych', 'WARNING');
+            logToFile('UWAGA: Kwota z zrzutka.pl wynosi 0 – możliwy problem z pobieraniem danych', 'WARNING');
         }
         if (siepomagaAmount === 0) {
-            logToFile('UWAGA: Kwota z siepomaga.pl wynosi 0 - możliwy problem z pobieraniem danych', 'WARNING');
+            logToFile('UWAGA: Kwota z siepomaga.pl wynosi 0 – możliwy problem z pobieraniem danych', 'WARNING');
         }
         
         saveCounterToFile(zrzutkaAmount, siepomagaAmount, totalAmount);
@@ -308,7 +370,6 @@ async function startCounterUpdater() {
     console.log(`Stała kwota dodawana do sumy: ${formatAmount(STALA_KWOTA)}\n`);
     logToFile(`Serwer uruchomiony, stała kwota: ${formatAmount(STALA_KWOTA)}`, 'INFO');
     
-    // Inicjalizacja przeglądarki przed pierwszą aktualizacją
     await initBrowser();
     
     // Pierwsza aktualizacja natychmiast
@@ -319,13 +380,12 @@ async function startCounterUpdater() {
         console.log(`⏰ [${new Date().toLocaleTimeString('pl-PL')}] Aktualizacja...`);
         logToFile(`Planowa aktualizacja o ${new Date().toLocaleTimeString('pl-PL')}`, 'INFO');
         await fetchDonationCounter();
-    }, 80000);
+    }, 200000);
     
     console.log('✓ Aktualizator licznika uruchomiony (co 80 sekund)');
     logToFile('Aktualizator licznika uruchomiony (interwał: 80s)', 'INFO');
 }
 
-// Start serwera
 app.listen(PORT, async () => {
     console.log(`
 ╔════════════════════════════════════════════════╗
